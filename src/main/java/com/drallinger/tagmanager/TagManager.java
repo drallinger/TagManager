@@ -56,6 +56,7 @@ public class TagManager<T> implements AutoCloseable{
             preparedStatements.put("tagExists", connection.prepareStatement("SELECT EXISTS(SELECT 1 FROM tags WHERE name=?);"));
             preparedStatements.put("tagAssignmentExists", connection.prepareStatement("SELECT EXISTS(SELECT 1 FROM tag_assignments WHERE tag_id=? AND object_id=?);"));
             preparedStatements.put("getTagByID", connection.prepareStatement("SELECT rowid, name FROM tags WHERE rowid=?;"));
+            preparedStatements.put("getTagByName", connection.prepareStatement("SELECT rowid, name FROM tags WHERE name=?;"));
         }catch (SQLException e){
             System.err.printf("Failed to set up prepared statements: %s%n", e.getMessage());
             System.exit(1);
@@ -316,7 +317,24 @@ public class TagManager<T> implements AutoCloseable{
             }
             resultSet.close();
         }catch (SQLException e){
-            System.err.printf("Failed to check if tag exists: %s%n", e.getMessage());
+            System.err.printf("Failed to get tag by ID: %s%n", e.getMessage());
+            System.exit(1);
+        }
+        return tag;
+    }
+
+    public Tag getTagByName(String tagName){
+        Tag tag = null;
+        try{
+            PreparedStatement preparedStatement = preparedStatements.get("getTagByName");
+            preparedStatement.setString(1, tagName);
+            ResultSet resultSet = preparedStatement.executeQuery();
+            if(resultSet.next()){
+                tag = new Tag(resultSet.getInt(1), resultSet.getString(2));
+            }
+            resultSet.close();
+        }catch (SQLException e){
+            System.err.printf("Failed to get tag by name: %s%n", e.getMessage());
             System.exit(1);
         }
         return tag;
