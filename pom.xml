@@ -21,5 +21,11 @@
             <artifactId>sqlite-jdbc</artifactId>
             <version>3.45.2.0</version>
         </dependency>
+
+        <dependency>
+            <groupId>com.drallinger</groupId>
+            <artifactId>sqlite-helper</artifactId>
+            <version>1.0.0</version>
+        </dependency>
     </dependencies>
 </project>

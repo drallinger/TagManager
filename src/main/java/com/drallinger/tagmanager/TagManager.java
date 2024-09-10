@@ -1,5 +1,7 @@
 package com.drallinger.tagmanager;
 
+import com.drallinger.sqlite.SQLiteFunction;
+
 import java.sql.*;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -11,11 +13,11 @@ public class TagManager<T> implements AutoCloseable{
     private final String[] objectColumns;
     private final String groupByColumn;
     private final String orderByColumn;
-    private final CreateObjectFunction<T> createObjectFunction;
+    private final SQLiteFunction<T> createObjectFunction;
     private final Connection connection;
     private final HashMap<String, PreparedStatement> preparedStatements;
 
-    public TagManager(String databaseFile, String objectTableName, String[] objectColumns, String groupByColumn, String orderByColumn, CreateObjectFunction<T> createObjectFunction){
+    public TagManager(String databaseFile, String objectTableName, String[] objectColumns, String groupByColumn, String orderByColumn, SQLiteFunction<T> createObjectFunction){
         this.objectTableName = objectTableName;
         this.objectColumns = objectColumns;
         this.groupByColumn = groupByColumn;
@@ -52,6 +54,8 @@ public class TagManager<T> implements AutoCloseable{
             preparedStatements.put("deleteTagAssignmentsByObject", connection.prepareStatement("DELETE FROM tag_assignments WHERE object_id=?;"));
             preparedStatements.put("getTagsForObject", connection.prepareStatement("SELECT t.rowid, t.name FROM tags AS t INNER JOIN tag_assignments AS ta ON ta.tag_id=t.rowid WHERE ta.object_id=? ORDER BY t.name;"));
             preparedStatements.put("tagExists", connection.prepareStatement("SELECT EXISTS(SELECT 1 FROM tags WHERE name=?);"));
+            preparedStatements.put("tagAssignmentExists", connection.prepareStatement("SELECT EXISTS(SELECT 1 FROM tag_assignments WHERE tag_id=? AND object_id=?);"));
+            preparedStatements.put("getTagByID", connection.prepareStatement("SELECT rowid, name FROM tags WHERE rowid=?;"));
         }catch (SQLException e){
             System.err.printf("Failed to set up prepared statements: %s%n", e.getMessage());
             System.exit(1);
@@ -160,6 +164,25 @@ public class TagManager<T> implements AutoCloseable{
         return tags;
     }
 
+    public ArrayList<TagCount> getAllTagsByCount(){
+        ArrayList<TagCount> tags = new ArrayList<>();
+        try{
+            Statement statement = connection.createStatement();
+            ResultSet resultSet = statement.executeQuery(
+                "SELECT t.rowid, t.name, COUNT(ta.object_id) FROM tags AS t LEFT JOIN tag_assignments AS ta ON ta.tag_id=t.rowid GROUP BY t.name ORDER BY COUNT(ta.object_id) DESC, t.name;"
+            );
+            while(resultSet.next()){
+                Tag tag = new Tag(resultSet.getInt(1), resultSet.getString(2));
+                tags.add(new TagCount(tag, resultSet.getInt(3)));
+            }
+            resultSet.close();
+        }catch (SQLException e){
+            System.err.printf("Failed to get all tags: %s%n", e.getMessage());
+            System.exit(1);
+        }
+        return tags;
+    }
+
     public ArrayList<Tag> getTagsForObject(Taggable taggable){
         ArrayList<Tag> tags = null;
         try{
@@ -191,6 +214,25 @@ public class TagManager<T> implements AutoCloseable{
             System.exit(1);
         }
         return tagExists;
+    }
+
+    public boolean tagAssignmentExists(Tag tag, Taggable taggable){
+        boolean tagAssignmentExists = false;
+        try{
+            PreparedStatement preparedStatement = preparedStatements.get("tagAssignmentExists");
+            preparedStatement.setInt(1, tag.ID());
+            preparedStatement.setInt(2, taggable.getID());
+            ResultSet resultSet = preparedStatement.executeQuery();
+            if(resultSet.next()){
+                int result = resultSet.getInt(1);
+                tagAssignmentExists = result == 1;
+            }
+            resultSet.close();
+        }catch (SQLException e){
+            System.err.printf("Failed to check if tag assignment exists: %s%n", e.getMessage());
+            System.exit(1);
+        }
+        return tagAssignmentExists;
     }
 
     public ArrayList<T> executeTagSearch(TagSearch tagSearch){
@@ -241,7 +283,15 @@ public class TagManager<T> implements AutoCloseable{
 
     public ArrayList<T> getObjectsWithoutTags(){
         ArrayList<T> objects = new ArrayList<>();
-        String query = "SELECT o.rowid, o.name FROM " + objectTableName + " AS o WHERE NOT EXISTS (SELECT 1 FROM tag_assignments AS ta WHERE o.rowid = ta.object_id) ORDER BY o.name;";
+        StringBuilder queryBuilder = new StringBuilder("SELECT o.rowid,");
+        for(String objectColumn : objectColumns){
+            queryBuilder.append("o.").append(objectColumn).append(",");
+        }
+        queryBuilder.deleteCharAt(queryBuilder.lastIndexOf(","))
+            .append(" FROM ").append(objectTableName)
+            .append(" AS o WHERE NOT EXISTS (SELECT 1 FROM tag_assignments AS ta WHERE o.rowid = ta.object_id) ORDER BY o.")
+            .append(orderByColumn).append(";");
+        String query = queryBuilder.toString();
         try{
             Statement statement = connection.createStatement();
             ResultSet resultSet = statement.executeQuery(query);
@@ -253,6 +303,23 @@ public class TagManager<T> implements AutoCloseable{
             System.err.printf("Failed to get objects without tags: %s%n", e.getMessage());
         }
         return objects;
+    }
+
+    public Tag getTagByID(int ID){
+        Tag tag = null;
+        try{
+            PreparedStatement preparedStatement = preparedStatements.get("getTagByID");
+            preparedStatement.setInt(1, ID);
+            ResultSet resultSet = preparedStatement.executeQuery();
+            if(resultSet.next()){
+                tag = new Tag(resultSet.getInt(1), resultSet.getString(2));
+            }
+            resultSet.close();
+        }catch (SQLException e){
+            System.err.printf("Failed to check if tag exists: %s%n", e.getMessage());
+            System.exit(1);
+        }
+        return tag;
     }
 
     @Override
