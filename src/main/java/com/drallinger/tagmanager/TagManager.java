@@ -8,7 +8,7 @@ import java.util.HashMap;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-public class TagManager<T> implements AutoCloseable{
+public class TagManager<T extends Taggable> implements AutoCloseable{
     private final String objectTableName;
     private final String[] objectColumns;
     private final String groupByColumn;
@@ -236,6 +236,7 @@ public class TagManager<T> implements AutoCloseable{
         return tagAssignmentExists;
     }
 
+    @Deprecated
     public ArrayList<T> executeTagSearch(TagSearch tagSearch){
         ArrayList<T> objects = new ArrayList<>();
         String query;
@@ -278,6 +279,49 @@ public class TagManager<T> implements AutoCloseable{
             resultSet.close();
         }catch (SQLException e){
             System.err.printf("Failed to search database using tags: %s%n", e.getMessage());
+        }
+        return objects;
+    }
+
+    public ArrayList<T> executeTagSearch2(TagSearch tagSearch){
+        ArrayList<T> objects = new ArrayList<>();
+        String query = "SELECT rowid," + String.join(",", objectColumns) + " FROM " + objectTableName + " ORDER BY " + orderByColumn + ";";
+        ArrayList<Tag> includedTags = tagSearch.getIncludedTags();
+        ArrayList<Tag> excludedTags = tagSearch.getExcludedTags();
+        ArrayList<T> queryResults = new ArrayList<>();
+        try{
+            Statement statement = connection.createStatement();
+            ResultSet resultSet = statement.executeQuery(query);
+            while(resultSet.next()){
+                queryResults.add(createObjectFunction.execute(resultSet));
+            }
+            resultSet.close();
+        }catch (SQLException e){
+            System.err.printf("Failed to search database using tags: %s%n", e.getMessage());
+        }
+        if(!queryResults.isEmpty()){
+            queryResults.stream()
+                .filter(o -> {
+                    boolean isValid = true;
+                    for(Tag tag : includedTags){
+                        if(!tagAssignmentExists(tag, o)){
+                            isValid = false;
+                            break;
+                        }
+                    }
+                    return isValid;
+                })
+                .filter(o -> {
+                    boolean isValid = true;
+                    for(Tag tag : excludedTags){
+                        if(tagAssignmentExists(tag, o)){
+                            isValid = false;
+                            break;
+                        }
+                    }
+                    return isValid;
+                })
+                .forEach(objects::add);
         }
         return objects;
     }
